@@ -256,7 +256,7 @@ fun CounterScreen(
         )
         Spacer(modifier = Modifier.height(40.dp))
         Text(
-            text = "Застосунок створено в наукових цілях.\nАТ \"УКРЗАЛІЗНИЦЯ\" не має відношення до нього.",
+            text = "Застосунок створено в наукових цілях виключно для працівників київської дитячої залізниці.\nАТ \"УКРЗАЛІЗНИЦЯ\" не має відношення до нього.",
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.secondary,
             textAlign = TextAlign.Center,
