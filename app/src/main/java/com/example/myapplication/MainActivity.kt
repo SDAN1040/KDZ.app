@@ -22,6 +22,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.os.Build
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.graphics.Color
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 
 @Serializable
 data class ScheduleEntry(
@@ -34,11 +42,12 @@ class MainActivity : ComponentActivity() {
 
     private var adultCount by mutableIntStateOf(0)
     private var childCount by mutableIntStateOf(0)
-    private var scheduleList by mutableStateOf<List<ScheduleEntry>>(emptyList())
+    private var allSchedules by mutableStateOf<Map<String, List<ScheduleEntry>>>(emptyMap())
+    private var selectedScheduleName by mutableStateOf("Міжсезонна зміна")
 
     private var lastVolumeUpPressTime = 0L
     private var lastVolumeDownPressTime = 0L
-    private val volumeButtonDebounceTime = 200L
+    private val volumeButtonDebounceTime = 100L
 
     private var vibrator: Vibrator? = null
 
@@ -46,7 +55,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Инициализируем вибратор
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vibratorManager.defaultVibrator
@@ -55,22 +63,33 @@ class MainActivity : ComponentActivity() {
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
-        // Загружаем расписание из JSON
-        loadSchedule()
+        loadSchedules()
 
         setContent {
-            CounterScreen(adultCount, childCount, scheduleList, { vibrate(duration = 100, count = 2) }) {
+            CounterScreen(
+                adultCount,
+                childCount,
+                allSchedules,
+                selectedScheduleName,
+                { selectedScheduleName = it },
+                { vibrate(duration = 100, count = 2) }
+            ) {
                 adultCount = 0
                 childCount = 0
             }
         }
     }
 
-    private fun loadSchedule() {
+    private fun loadSchedules() {
         try {
             val inputStream = assets.open("schedule.json")
             val jsonString = inputStream.bufferedReader().use { it.readText() }
-            scheduleList = Json.decodeFromString(jsonString)
+            allSchedules = Json.decodeFromString(jsonString)
+
+            // Если расписание по умолчанию не существует, устанавливаем первое доступное
+            if (!allSchedules.containsKey(selectedScheduleName) && allSchedules.isNotEmpty()) {
+                selectedScheduleName = allSchedules.keys.first()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -82,7 +101,7 @@ class MainActivity : ComponentActivity() {
         Thread {
             repeat(count) { index ->
                 if (index > 0) {
-                    Thread.sleep(100) // пауза между вибрациями
+                    Thread.sleep(100)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     vibrator?.vibrate(android.os.VibrationEffect.createOneShot(duration, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
@@ -123,7 +142,9 @@ class MainActivity : ComponentActivity() {
 fun CounterScreen(
     adult: Int,
     child: Int,
-    scheduleList: List<ScheduleEntry>,
+    allSchedules: Map<String, List<ScheduleEntry>>,
+    selectedScheduleName: String,
+    onScheduleSelected: (String) -> Unit,
     onScheduleChange: () -> Unit,
     onReset: () -> Unit
 ) {
@@ -134,8 +155,11 @@ fun CounterScreen(
     var timeUntilNext by remember { mutableStateOf("") }
     var showResetConfirmation by remember { mutableStateOf(false) }
     var previousScheduleEntry by remember { mutableStateOf<ScheduleEntry?>(null) }
+    var expandedScheduleMenu by remember { mutableStateOf(false) }
 
-    LaunchedEffect(scheduleList) {
+    val currentScheduleList = allSchedules[selectedScheduleName] ?: emptyList()
+
+    LaunchedEffect(selectedScheduleName, currentScheduleList) {
         val formatter = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
         val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
 
@@ -145,10 +169,8 @@ fun CounterScreen(
 
             val currentTimeString = timeFormatter.format(now)
 
-            // Находим текущую запись в расписании
-            val newScheduleEntry = findCurrentEntry(scheduleList, currentTimeString)
+            val newScheduleEntry = findCurrentEntry(currentScheduleList, currentTimeString)
 
-            // Проверяем, изменилась ли текущая запись
             if (newScheduleEntry != previousScheduleEntry && newScheduleEntry != null) {
                 onScheduleChange()
                 previousScheduleEntry = newScheduleEntry
@@ -156,11 +178,9 @@ fun CounterScreen(
 
             currentScheduleEntry = newScheduleEntry
 
-            // Находим следующую запись
-            val nextEntry = findNextEntry(scheduleList, currentTimeString)
+            val nextEntry = findNextEntry(currentScheduleList, currentTimeString)
             nextScheduleEntry = nextEntry
 
-            // Вычисляем время до следующей записи
             if (nextEntry != null) {
                 timeUntilNext = calculateTimeDifference(currentTimeString, nextEntry.time)
             }
@@ -169,99 +189,167 @@ fun CounterScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(30.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-
-        Text(
-            text = "Київська Дитяча Залізниця\nМіжсезонна зміна",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.secondary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(40.dp))
-        // Номер рейса
-        if (currentScheduleEntry != null) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
-                text = "Рейс: ${currentScheduleEntry!!.number}",
-                fontSize = 28.sp
-            )
-            Spacer(modifier = Modifier.height(15.dp))
-        }
-
-        // Время
-        Text(
-            text = currentTime,
-            fontSize = 28.sp
-        )
-
-        // Текущее состояние и следующее
-        if (currentScheduleEntry != null) {
-            Spacer(modifier = Modifier.height(15.dp))
-            Text(
-                text = "Зараз: ${currentScheduleEntry!!.state}",
-                fontSize = 18.sp,
+                text = "Київська Дитяча Залізниця\n$selectedScheduleName",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.secondary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(10.dp))
+            // Выпадающее меню для выбора расписания
+            Box {
+                Button(
+                    onClick = { expandedScheduleMenu = !expandedScheduleMenu },
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    Text("Обрати розклад руху", fontSize = 14.sp)
+                }
 
-            if (nextScheduleEntry != null) {
-                Spacer(modifier = Modifier.height(10.dp))
+                DropdownMenu(
+                    expanded = expandedScheduleMenu,
+                    onDismissRequest = { expandedScheduleMenu = false },
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    allSchedules.keys.forEach { scheduleName ->
+                        DropdownMenuItem(
+                            text = { Text(scheduleName) },
+                            onClick = {
+                                onScheduleSelected(scheduleName)
+                                previousScheduleEntry = null
+                                expandedScheduleMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(35.dp))
+
+
+
+            if (currentScheduleEntry != null) {
                 Text(
-                    text = "\nНаст.: ${nextScheduleEntry!!.state}\nЧерез: $timeUntilNext хв (${nextScheduleEntry!!.time})",
-                    fontSize = 16.sp,
+                    text = "Рейс: ${currentScheduleEntry!!.number}",
+                    fontSize = 28.sp
+                )
+                Spacer(modifier = Modifier.height(15.dp))
+            }
+
+            Text(
+                text = currentTime,
+                fontSize = 28.sp
+            )
+
+            if (currentScheduleEntry != null) {
+                Spacer(modifier = Modifier.height(15.dp))
+                Text(
+                    text = "Зараз: ${currentScheduleEntry!!.state}",
+                    fontSize = 18.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (nextScheduleEntry != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "\nНаст.: ${nextScheduleEntry!!.state}\nЧерез: $timeUntilNext хв (${nextScheduleEntry!!.time})",
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(30.dp))
+
+            Text(
+                text = "Дорослих: $adult",
+                fontSize = 36.sp
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "Дитячих: $child",
+                fontSize = 36.sp
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Всього: ${child+adult}",
+                fontSize = 36.sp
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+            Button(
+                onClick = {
+                    showResetConfirmation = true
+                },
+                modifier = Modifier.size(width = 150.dp, height = 60.dp)
+            ) {
+                Text("Скинути", fontSize = 24.sp)
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+            Text(
+                text = "Додавання пасажирів кнопками регулювання гучності,\n+ дорослий, - дитячий",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.secondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(40.dp))
+            Text(
+                text = "Застосунок створено в наукових цілях виключно для працівників київської дитячої залізниці.\nАТ \"УКРЗАЛІЗНИЦЯ\" не має відношення до нього.",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.secondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
-        Spacer(modifier = Modifier.height(50.dp))
-
-        Text(
-            text = "Дорослих: $adult",
-            fontSize = 36.sp
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "Дитячих: $child",
-            fontSize = 36.sp
-        )
-
-        Spacer(modifier = Modifier.height(40.dp))
-
-        Button(
-            onClick = {
-                showResetConfirmation = true
-            },
-            modifier = Modifier.size(width = 150.dp, height = 60.dp)
+        // Ссылка внизу по центру
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Скинути", fontSize = 24.sp)
-        }
+            val annotatedString = buildAnnotatedString {
+                append("Сайт: ")
+                pushStringAnnotation(tag = "URL", annotation = "https://sites.google.com/view/kdz-app")
+                pushStyle(SpanStyle(color = Color.Gray, textDecoration = TextDecoration.Underline))
+                append("Перейти на сайт")
+                pop()
+                pop()
+            }
 
-        Spacer(modifier = Modifier.height(40.dp))
-        Text(
-            text = "Додавання пасажирів кнопками регулювання гучності,\n+ дорослий, - дитячий",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.secondary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(40.dp))
-        Text(
-            text = "Застосунок створено в наукових цілях виключно для працівників київської дитячої залізниці.\nАТ \"УКРЗАЛІЗНИЦЯ\" не має відношення до нього.",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.secondary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
+            val context = LocalContext.current
+
+            ClickableText(
+                text = annotatedString,
+                onClick = { offset ->
+                    annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                        .firstOrNull()?.let { annotation ->
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
+                            context.startActivity(intent)
+                        }
+                },
+                modifier = Modifier.padding(10.dp)
+            )
+        }
     }
 
     if (showResetConfirmation) {
