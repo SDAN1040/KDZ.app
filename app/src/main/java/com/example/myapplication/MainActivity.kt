@@ -309,7 +309,7 @@ fun CounterScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = "Застосунок створено в наукових цілях виключно для працівників київської дитячої залізниці.\nАТ \"УКРЗАЛІЗНИЦЯ\" не має відношення до нього.",
                 fontSize = 10.sp,
@@ -317,16 +317,8 @@ fun CounterScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-        }
+            Spacer(modifier = Modifier.height(10.dp))
 
-        // Ссылка внизу по центру
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(bottom = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
             val annotatedString = buildAnnotatedString {
                 append("Сайт: ")
                 pushStringAnnotation(tag = "URL", annotation = "https://sites.google.com/view/kdz-app")
@@ -349,6 +341,16 @@ fun CounterScreen(
                 },
                 modifier = Modifier.padding(10.dp)
             )
+        }
+
+
+        // Ссылка внизу по центру
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
         }
     }
 
