@@ -45,11 +45,10 @@ class MainActivity : ComponentActivity() {
     private var allSchedules by mutableStateOf<Map<String, List<ScheduleEntry>>>(emptyMap())
     private var selectedScheduleName by mutableStateOf("Міжсезонна зміна")
 
-    private var lastVolumeUpPressTime = 0L
-    private var lastVolumeDownPressTime = 0L
-    private val volumeButtonDebounceTime = 100L
-
     private var vibrator: Vibrator? = null
+
+    private var volumeUpPressed = false
+    private var volumeDownPressed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,7 +85,6 @@ class MainActivity : ComponentActivity() {
             val jsonString = inputStream.bufferedReader().use { it.readText() }
             allSchedules = Json.decodeFromString(jsonString)
 
-            // Если расписание по умолчанию не существует, устанавливаем первое доступное
             if (!allSchedules.containsKey(selectedScheduleName) && allSchedules.isNotEmpty()) {
                 selectedScheduleName = allSchedules.keys.first()
             }
@@ -114,27 +112,46 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        val currentTime = System.currentTimeMillis()
 
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            if (currentTime - lastVolumeUpPressTime >= volumeButtonDebounceTime) {
-                adultCount++
-                lastVolumeUpPressTime = currentTime
-                vibrate(duration = 500, count = 1)
-            }
+        if (event?.repeatCount ?: 0 > 0) {
             return true
         }
 
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (currentTime - lastVolumeDownPressTime >= volumeButtonDebounceTime) {
-                childCount++
-                lastVolumeDownPressTime = currentTime
-                vibrate(duration = 500, count = 1)
+        when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                volumeUpPressed = true
+                return true
             }
-            return true
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                volumeDownPressed = true
+                return true
+            }
         }
 
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                if (volumeUpPressed) {
+                    adultCount++
+                    vibrate(duration = 500, count = 1)
+                    volumeUpPressed = false
+                }
+                return true
+            }
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                if (volumeDownPressed) {
+                    childCount++
+                    vibrate(duration = 500, count = 1)
+                    volumeDownPressed = false
+                }
+                return true
+            }
+        }
+
+        return super.onKeyUp(keyCode, event)
     }
 }
 
@@ -207,7 +224,7 @@ fun CounterScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(10.dp))
-            // Выпадающее меню для выбора расписания
+
             Box {
                 Button(
                     onClick = { expandedScheduleMenu = !expandedScheduleMenu },
@@ -235,8 +252,6 @@ fun CounterScreen(
             }
 
             Spacer(modifier = Modifier.height(35.dp))
-
-
 
             if (currentScheduleEntry != null) {
                 Text(
@@ -343,8 +358,6 @@ fun CounterScreen(
             )
         }
 
-
-        // Ссылка внизу по центру
         Column(
             modifier = Modifier
                 .fillMaxWidth(),
